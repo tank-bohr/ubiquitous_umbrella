@@ -1,0 +1,2 @@
+run:
+	iex -S mix
