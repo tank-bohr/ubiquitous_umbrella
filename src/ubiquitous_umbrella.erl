@@ -12,7 +12,9 @@ allocate_grass_pokemon() ->
     allocate_pokemon(<<"grass">>).
 
 allocate_pokemon(Type) ->
-    ?gnat:request(gnat, <<"pokemons.allocate">>, Type).
+    ?gnat:request(gnat, <<"pokemons.allocate">>, Type, [
+        {receive_timeout, timer:seconds(5)}
+    ]).
 
 hello() ->
     world.

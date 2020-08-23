@@ -1,6 +1,7 @@
 -module(ubiquitous_umbrella_server).
 -include("ubiquitous_umbrella.hrl").
 -include_lib("kernel/include/logger.hrl").
+-include_lib("stdlib/include/ms_transform.hrl").
 
 -export([
     child_spec/1,
@@ -21,7 +22,7 @@
 -define(WITH_TYPE(Type), [{
     #pokemon{name = '$1', type = Type, state = deallocated, _ = '_'}, %% MatchHead
     [],                                                               %% Guards
-    [$1]                                                              %% Result
+    ['$1']                                                            %% Result
 }]).
 -define(ALLOCATION_TIME_SECONDS, 60).
 
@@ -75,7 +76,8 @@ handle_continue(populate_pokemns, #state{shard_number = ShardNumber, shards_coun
             ShardNumber ->
                 ets:insert(?TAB, [#pokemon{name = Name, type = Type} || Type <- lists:usort(Types)]);
             _ ->
-                %% ?LOG_DEBUG("Skip pokemon [~s]", [Name])
+                % ?LOG_DEBUG("Skip pokemon [~s]", [Name])
+                skip
         end
     end, Data),
     {noreply, State, timer:seconds(1)}.
@@ -124,18 +126,23 @@ handle_gnat_message(#{topic := Topic, body := Body} = Msg) ->
             allocate_pokemon(Body, ReplyTo)
     end.
 
-deallocate_pokemon(Pokemon) ->
-    ets:update_element(?TAB, Pokemon, {#pokemon.state, deallocated}).
-
 allocate_pokemon(Type, ReplyTo) ->
     case select_pokemon(Type) of
         not_found ->
             ?LOG_DEBUG("Couldn't find pokemon with type [~p]", [Type]);
         Pokemon ->
-            ets:update_element(?TAB, Pokemon, {#pokemon.state, allocated}),
+            update_pokemon_state(Pokemon, allocated),
             {ok, _} = timer:send_after(timer:seconds(?ALLOCATION_TIME_SECONDS), self(), {deallocate, Pokemon}),
             ok = ?gnat:pub(gnat, ReplyTo, Pokemon, [{reply_to, <<"noreply">>}])
     end.
+
+deallocate_pokemon(Pokemon) ->
+    update_pokemon_state(Pokemon, deallocated).
+
+update_pokemon_state(Pokemon, State) when State =:= allocated; State =:= deallocated ->
+    Objects = ets:lookup(?TAB, Pokemon),
+    true = ets:delete(?TAB, Pokemon),
+    true = ets:insert(?TAB, [O#pokemon{state = State} || O <- Objects]).
 
 select_pokemon(Type) ->
     Pokemons = array:from_list(ets:select(?TAB, ?WITH_TYPE(Type))),
