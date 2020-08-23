@@ -20,6 +20,7 @@ defmodule UbiquitousUmbrella.MixProject do
 
   defp deps do
     [
+      {:jsx, "~> 3.0"},
       {:gnat, "~> 1.1"},
       {:backoff, "~> 1.1"}
     ]

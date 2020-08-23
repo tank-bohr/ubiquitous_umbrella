@@ -14,15 +14,18 @@ start_link() ->
 
 %% @private
 init({}) ->
-    GnatSettings = gnat_settings(),
     Children = [
-        ?WORKER(?gnat_connection_supervisor, [GnatSettings, [
+        ?WORKER(?gnat_connection_supervisor, [gnat_settings(), [
             {name, gnat_connection_supervisor}
         ]]),
-        ubiquitous_umbrella_server:child_spec([GnatSettings])
+        ubiquitous_umbrella_server:child_spec([{1, 3}])
     ],
     RestartStrategy = {one_for_one, 5, 10},
     {ok, {RestartStrategy, Children}}.
 
 gnat_settings() ->
-    application:get_env(ubiquitous_umbrella, gnat_settings, ?DEFAULT_GNAT_SETTINGS).
+    {ok, ConnectionSettings} = application:get_env(ubiquitous_umbrella, gnat_connection_settings),
+    #{
+        name                => gnat,
+        connection_settings => ConnectionSettings
+    }.

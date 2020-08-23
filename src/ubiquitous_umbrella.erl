@@ -3,12 +3,16 @@
 -include_lib("kernel/include/logger.hrl").
 
 -export([
-    req/2,
+    allocate_grass_pokemon/0,
+    allocate_pokemon/1,
     hello/0
 ]).
 
-req(Topic, Payload) ->
-    ?gnat:request(gnat, Topic, Payload).
+allocate_grass_pokemon() ->
+    allocate_pokemon(<<"grass">>).
+
+allocate_pokemon(Type) ->
+    ?gnat:request(gnat, <<"pokemons.allocate">>, Type).
 
 hello() ->
     world.
