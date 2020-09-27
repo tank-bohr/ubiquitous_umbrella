@@ -145,11 +145,14 @@ update_pokemon_state(Pokemon, State) when State =:= allocated; State =:= dealloc
     true = ets:insert(?TAB, [O#pokemon{state = State} || O <- Objects]).
 
 select_pokemon(Type) ->
-    Pokemons = array:from_list(ets:select(?TAB, ?WITH_TYPE(Type))),
-    case array:size(Pokemons) of
-        Size when Size > 0 ->
-            Index = rand:uniform(Size) - 1,
-            array:get(Index, Pokemons);
-        _ ->
-            not_found
+    case ets:select(?TAB, ?WITH_TYPE(Type)) of
+        [] ->
+            not_found;
+        Pokemons ->
+            get_random_element(Pokemons)
     end.
+
+get_random_element(List) -> get_random_element(List, 1, rand:uniform(length(List))).
+
+get_random_element([Elem|_], Current, Index) when Current =:= Index -> Elem;
+get_random_element([_|Rest], Current, Index) -> get_random_element(Rest, Current + 1, Index).
