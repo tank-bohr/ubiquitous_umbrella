@@ -54,8 +54,11 @@ start_link(Arg) ->
 
 %% @private
 init({ShardNumber, ShardsCount}) ->
-    Backoff = backoff:init(2, 10),
-    State = #state{shard_number = ShardNumber, shards_count = ShardsCount, backoff = Backoff},
+    State = #state{
+        backoff = backoff:init(2, 10),
+        shard_number = ShardNumber,
+        shards_count = ShardsCount
+    },
     ets:new(?TAB, [bag, public, named_table, {keypos, #pokemon.name}]),
     {ok, State, {continue, populate_pokemns}}.
 
@@ -72,7 +75,8 @@ handle_continue(populate_pokemns, #state{shard_number = ShardNumber, shards_coun
     {ok, Bin} = file:read_file(Path),
     Data = jsx:decode(Bin, [return_maps, {labels, existing_atom}]),
     ok = lists:foreach(fun(#{name := Name, type := Types}) ->
-        case erlang:phash2(Name, ShardsCount) of
+        Shard = erlang:phash2(Name, ShardsCount) + 1,
+        case Shard of
             ShardNumber ->
                 ets:insert(?TAB, [#pokemon{name = Name, type = Type} || Type <- lists:usort(Types)]);
             _ ->
@@ -107,7 +111,7 @@ try_subscribe(State) ->
 subscribe(State) ->
     {ok, GnatSubject} = application:get_env(ubiquitous_umbrella, gnat_subject),
     ?LOG_DEBUG("Subscribe to [~p]", [GnatSubject]),
-    case ?gnat:sub(gnat, self(), GnatSubject) of
+    case ?gnat:sub(gnat, self(), GnatSubject, [{queue_group, <<"group">>}]) of
         {ok, Sub} ->
             {_, Backoff} = backoff:succeed(State#state.backoff),
             {noreply, State#state{backoff = Backoff, sub = Sub}};
@@ -123,6 +127,7 @@ handle_gnat_message(#{topic := Topic, body := Body} = Msg) ->
         #{reply_to := nil} ->
             ?LOG_INFO("No reply needed");
         #{reply_to := ReplyTo} ->
+            ?LOG_DEBUG("Need to reply to ~p", [ReplyTo]),
             allocate_pokemon(Body, ReplyTo)
     end.
 
@@ -132,7 +137,9 @@ allocate_pokemon(Type, ReplyTo) ->
             ?LOG_DEBUG("Couldn't find pokemon with type [~p]", [Type]);
         Pokemon ->
             update_pokemon_state(Pokemon, allocated),
-            {ok, _} = timer:send_after(timer:seconds(?ALLOCATION_TIME_SECONDS), self(), {deallocate, Pokemon}),
+            ?LOG_DEBUG("Pokemon allocated [~s]", [Pokemon]),
+            {ok, TRef} = timer:send_after(timer:seconds(?ALLOCATION_TIME_SECONDS), self(), {deallocate, Pokemon}),
+            ?LOG_DEBUG("Deallocate timer started [~p]", [TRef]),
             ok = ?gnat:pub(gnat, ReplyTo, Pokemon, [{reply_to, <<"noreply">>}])
     end.
 
