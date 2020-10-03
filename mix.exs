@@ -22,7 +22,8 @@ defmodule UbiquitousUmbrella.MixProject do
     [
       {:jsx, "~> 3.0"},
       {:gnat, "~> 1.1"},
-      {:backoff, "~> 1.1"}
+      {:backoff, "~> 1.1"},
+      {:cowboy, "~> 2.8"}
     ]
   end
 end

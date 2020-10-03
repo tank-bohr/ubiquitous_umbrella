@@ -5,7 +5,8 @@
 
 -export([
     child_spec/1,
-    start_link/1
+    start_link/1,
+    allocate/1
 ]).
 
 -behaviour(gen_server).
@@ -65,6 +66,9 @@ child_spec(Args) ->
 start_link(Arg) ->
     gen_server:start_link({local, ?SERVER}, ?MODULE, Arg, []).
 
+allocate(Type) ->
+    gen_server:call(?SERVER, {allocate, Type}).
+
 %% @private
 init({ShardNumber, ShardsCount}) ->
     Id = generate_id(),
@@ -79,6 +83,19 @@ init({ShardNumber, ShardsCount}) ->
     {ok, State, {continue, populate_pokemns}}.
 
 %% @private
+handle_call({allocate, Type}, _From, #state{id = Id} = State) ->
+    Reply = case select_pokemon(Type) of
+        not_found ->
+            ?LOG_DEBUG("Couldn't find pokemon with type [~p]", [Type]),
+            exhausted;
+        Pokemon ->
+            update_pokemon_state(Pokemon, allocated),
+            ?LOG_DEBUG("Pokemon allocated [~s]", [Pokemon]),
+            {ok, TRef} = timer:send_after(timer:seconds(?ALLOCATION_TIME_SECONDS), self(), {deallocate, Pokemon}),
+            ?LOG_DEBUG("Deallocate timer started [~p]", [TRef]),
+            {found, #{pokemon => Pokemon, shard_id => Id}}
+    end,
+    {reply, Reply, State};
 handle_call(_Request, _From, State) ->
     {reply, {error, unknown_call}, State}.
 

@@ -10,6 +10,7 @@
 ]).
 
 start(_StartType, _StartArgs) ->
+    start_cowboy(),
     ubiquitous_umbrella_sup:start_link().
 
 stop(State) ->
@@ -19,3 +20,12 @@ stop(State) ->
 prep_stop(State) ->
     ?LOG_DEBUG("Stopping...", [State]),
     State.
+
+start_cowboy() ->
+    Dispatch = cowboy_router:compile([
+        {'_', [{"/", ubiquitous_umbrella_handler, []}]}
+    ]),
+    {ok, _} = cowboy:start_clear(uu_http_listener,
+        [{port, 8080}],
+        #{env => #{dispatch => Dispatch}}
+    ).
