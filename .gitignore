@@ -22,3 +22,6 @@ erl_crash.dump
 # Ignore package tarball (built via "mix hex.build").
 ubiquitous_umbrella-*.tar
 
+.terraform/
+terraform.tfstate
+terraform.tfstate.backup

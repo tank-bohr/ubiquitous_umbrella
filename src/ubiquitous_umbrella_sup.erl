@@ -20,7 +20,7 @@ init({}) ->
 children() ->
     children(os:getenv("SHARD_NUMBER"), os:getenv("SHARDS_COUNT")).
 
-children(ShardNumber, ShardsCount) when ShardNumber =:= false, ShardsCount =:= false ->
+children(ShardNumber, ShardsCount) when ShardNumber =:= false; ShardsCount =:= false ->
     [gnat_server_spec()];
 children(ShardNumberStr, ShardsCountStr) ->
     ShardNumber = list_to_integer(ShardNumberStr),

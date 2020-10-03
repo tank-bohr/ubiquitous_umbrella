@@ -75,7 +75,7 @@ handle_continue(populate_pokemns, #state{shard_number = ShardNumber, shards_coun
     {ok, Bin} = file:read_file(Path),
     Data = jsx:decode(Bin, [return_maps, {labels, existing_atom}]),
     ok = lists:foreach(fun(#{name := Name, type := Types}) ->
-        Shard = erlang:phash2(Name, ShardsCount) + 1,
+        Shard = erlang:phash2(Name, ShardsCount),
         case Shard of
             ShardNumber ->
                 ets:insert(?TAB, [#pokemon{name = Name, type = Type} || Type <- lists:usort(Types)]);
