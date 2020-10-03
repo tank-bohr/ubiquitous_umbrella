@@ -19,18 +19,31 @@
 
 -define(SERVER, ?MODULE).
 -define(TAB, ?MODULE).
+-define(MATCH_HEAD(Type), #pokemon{
+    name = '$1',
+    type = Type,
+    state = deallocated,
+    _ = '_'
+}).
 -define(WITH_TYPE(Type), [{
-    #pokemon{name = '$1', type = Type, state = deallocated, _ = '_'}, %% MatchHead
-    [],                                                               %% Guards
-    ['$1']                                                            %% Result
+    ?MATCH_HEAD(Type), %% MatchHead
+    [],                %% Guards
+    ['$1']             %% Result
 }]).
--define(ALLOCATION_TIME_SECONDS, 60).
+-define(COUNT_WITH_TYPE(Type), [{
+    ?MATCH_HEAD(Type), %% MatchHead
+    [],                %% Guards
+    [true]             %% Result
+}]).
+-define(ALLOCATION_TIME_SECONDS, 600).
 
 -record(state, {
-    shard_number :: non_neg_integer(),
-    shards_count :: non_neg_integer(),
-    backoff      :: backoff:backoff(),
-    sub          :: undefined | non_neg_integer()
+    shard_number     :: non_neg_integer(),
+    shards_count     :: non_neg_integer(),
+    backoff          :: backoff:backoff(),
+    callback_subject :: binary(),
+    id               :: binary(),
+    sub              :: undefined | non_neg_integer()
 }).
 
 -record(pokemon, {
@@ -54,10 +67,13 @@ start_link(Arg) ->
 
 %% @private
 init({ShardNumber, ShardsCount}) ->
+    Id = generate_id(),
     State = #state{
+        id = Id,
         backoff = backoff:init(2, 10),
         shard_number = ShardNumber,
-        shards_count = ShardsCount
+        shards_count = ShardsCount,
+        callback_subject = <<"reply_to.", Id/binary>>
     },
     ets:new(?TAB, [bag, public, named_table, {keypos, #pokemon.name}]),
     {ok, State, {continue, populate_pokemns}}.
@@ -89,8 +105,8 @@ handle_continue(populate_pokemns, #state{shard_number = ShardNumber, shards_coun
 %% @private
 handle_info(timeout, State) ->
     try_subscribe(State);
-handle_info({msg, Msg}, State) ->
-    handle_gnat_message(Msg),
+handle_info({msg, Msg}, #state{sub = Sub, callback_subject = CallbackSubject} = State) ->
+    handle_gnat_message(Msg, Sub, CallbackSubject),
     {noreply, State};
 handle_info({deallocate, Pokemon}, State) ->
     deallocate_pokemon(Pokemon),
@@ -108,39 +124,52 @@ try_subscribe(State) ->
             {noreply, State#state{backoff = Backoff}, timer:seconds(Timeout)}
     end.
 
-subscribe(State) ->
+subscribe(#state{callback_subject = CallbackSubject} = State) ->
     {ok, GnatSubject} = application:get_env(ubiquitous_umbrella, gnat_subject),
-    ?LOG_DEBUG("Subscribe to [~p]", [GnatSubject]),
-    case ?gnat:sub(gnat, self(), GnatSubject, [{queue_group, <<"group">>}]) of
+    case ?gnat:sub(gnat, self(), GnatSubject) of
         {ok, Sub} ->
+            {ok, GnatGroup} = application:get_env(ubiquitous_umbrella, gnat_group),
+            {ok, _} = ?gnat:sub(gnat, self(), GnatGroup, [{queue_group, <<"group">>}]),
+            {ok, _} = ?gnat:sub(gnat, self(), CallbackSubject),
+            ?LOG_DEBUG("Subscription success"),
             {_, Backoff} = backoff:succeed(State#state.backoff),
             {noreply, State#state{backoff = Backoff, sub = Sub}};
         Error ->
-            ?LOG_ERROR("Could'n subscribe to subject [~s] due to ~p", [GnatSubject, Error]),
+            ?LOG_ERROR("Could'n subscribe due to ~p", [Error]),
             {Timeout, Backoff} = backoff:fail(State#state.backoff),
             {noreply, State#state{backoff = Backoff}, timer:seconds(Timeout)}
     end.
 
-handle_gnat_message(#{topic := Topic, body := Body} = Msg) ->
+handle_gnat_message(#{topic := Topic, body := Body, sid := Sid} = Msg, Sub, CallbackSubject) ->
     ?LOG_INFO("Message [~p] received from topic [~s]", [Body, Topic]),
     case Msg of
         #{reply_to := nil} ->
             ?LOG_INFO("No reply needed");
+        #{reply_to := ReplyTo} when Sub =:= Sid ->
+            check_pokemon(Body, ReplyTo, CallbackSubject);
         #{reply_to := ReplyTo} ->
-            ?LOG_DEBUG("Need to reply to ~p", [ReplyTo]),
-            allocate_pokemon(Body, ReplyTo)
+            allocate_pokemon(Body, ReplyTo, CallbackSubject)
     end.
 
-allocate_pokemon(Type, ReplyTo) ->
+check_pokemon(Type, ReplyTo, CallbackSubject) ->
+    case ets:select_count(?TAB, ?COUNT_WITH_TYPE(Type)) of
+        0 ->
+            ?LOG_DEBUG("Empty for [~p]", [Type]);
+        Number ->
+            ?gnat:pub(gnat, ReplyTo, integer_to_binary(Number), [{reply_to, CallbackSubject}])
+    end.
+
+allocate_pokemon(Type, ReplyTo, CallbackSubject) ->
     case select_pokemon(Type) of
         not_found ->
-            ?LOG_DEBUG("Couldn't find pokemon with type [~p]", [Type]);
+            ?LOG_DEBUG("Couldn't find pokemon with type [~p]", [Type]),
+            ok = ?gnat:pub(gnat, ReplyTo, <<"[exhausted]">>, [{reply_to, CallbackSubject}]);
         Pokemon ->
             update_pokemon_state(Pokemon, allocated),
             ?LOG_DEBUG("Pokemon allocated [~s]", [Pokemon]),
             {ok, TRef} = timer:send_after(timer:seconds(?ALLOCATION_TIME_SECONDS), self(), {deallocate, Pokemon}),
             ?LOG_DEBUG("Deallocate timer started [~p]", [TRef]),
-            ok = ?gnat:pub(gnat, ReplyTo, Pokemon, [{reply_to, <<"noreply">>}])
+            ok = ?gnat:pub(gnat, ReplyTo, Pokemon, [{reply_to, CallbackSubject}])
     end.
 
 deallocate_pokemon(Pokemon) ->
@@ -163,3 +192,6 @@ get_random_element(List) -> get_random_element(List, 1, rand:uniform(length(List
 
 get_random_element([Elem|_], Current, Index) when Current =:= Index -> Elem;
 get_random_element([_|Rest], Current, Index) -> get_random_element(Rest, Current + 1, Index).
+
+generate_id() ->
+    string:lowercase(base64:encode(crypto:strong_rand_bytes(16))).

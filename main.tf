@@ -54,6 +54,7 @@ resource "docker_container" "app" {
   count = var.shards_count
   name  = "uu-app-${count.index}"
   env = [
+    "NATS_HOST=${docker_container.nats.name}",
     "SHARD_NUMBER=${count.index}",
     "SHARDS_COUNT=${var.shards_count}"
   ]
