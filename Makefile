@@ -2,7 +2,7 @@
 .PHONY: compile cluster
 
 compile:
-	docker run --rm -v `pwd`:/build -w /build elixir:1.10.4 mix do local.hex --force, deps.get, compile
+	docker run --rm -v `pwd`:/build -w /build elixir:1.10.4 mix do local.hex --force, local.rebar --force, deps.get, compile
 
 cluster: compile
 	terraform apply -auto-approve

@@ -1,0 +1,11 @@
+upstream backend {
+    {{ range service "ubiquitous-umbrella" }}
+    server {{ .Address }}:{{ .Port }};{{ end }}
+}
+
+server {
+    location / {
+        proxy_pass http://backend;
+        proxy_next_upstream error timeout http_404;
+    }
+}
