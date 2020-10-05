@@ -1,6 +1,6 @@
 upstream backend {
     {{ range service "ubiquitous-umbrella" }}
-    server {{ .Address }}:{{ .Port }};{{ end }}
+    server {{ .Address }}:{{ .Port }} max_fails=0;{{ end }}
 }
 
 server {
