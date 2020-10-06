@@ -93,7 +93,8 @@ resource "docker_container" "consul-template" {
     source = "${path.cwd}/templates"
   }
   depends_on = [
-    docker_container.consul
+    docker_container.consul,
+    docker_container.app
   ]
   command = [
     "/bin/consul-template",
@@ -135,5 +136,8 @@ resource "docker_container" "app" {
     "NATS_HOST=${docker_container.nats.name}",
     "SHARD_NUMBER=${count.index}",
     "SHARDS_COUNT=${var.shards_count}"
+  ]
+  depends_on = [
+    docker_container.consul
   ]
 }

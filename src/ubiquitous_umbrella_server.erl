@@ -36,7 +36,7 @@
     [],                %% Guards
     [true]             %% Result
 }]).
--define(ALLOCATION_TIME_SECONDS, 600).
+-define(ALLOCATION_TIME_SECONDS, 10).
 
 -record(state, {
     shard_number     :: non_neg_integer(),
